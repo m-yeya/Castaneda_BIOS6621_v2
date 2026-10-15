@@ -1,0 +1,150 @@
+---
+title: "R Markdown First Assignment"
+author: "Mirella Castaneda"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, include=FALSE}
+# Import libraries or install packages
+
+#install.packages('tidyverse')
+library(tidyverse)
+library(knitr)
+
+#Installing other packages
+
+#install.packages("kableExtra")
+library('kableExtra')
+
+library(RColorBrewer)
+
+#install.packages('tableone')
+library('tableone')
+
+library('table1')
+
+
+```
+
+
+
+```{r, include=FALSE}
+# Read in data
+
+mydf <- read_csv("../DataRaw/lead-iq-01.csv")
+
+# Full view of data
+#print(mydf, n=150)
+
+# Quick view 
+mydf
+```
+
+
+
+
+```{r graph , echo=FALSE}
+
+# A graph showing the IQ levels by location status
+
+t <- ggplot(mydf)
+  
+
+t + geom_col(aes(Smelter, IQ)) +
+  labs(x = "Location Status", y = 'IQ Levels', 
+       title = "IQ Levels by Location Status")
+
+```
+
+
+
+```{r  table1, echo=FALSE}
+# At least one nicely formatted table (hint: try the 'kable' function in the knitr R package or one of the popular table R packages like tableone, table1, or gtsummary)
+
+# Used table1 package
+
+label(mydf$IQ) <- 'IQ Levels'
+label(mydf$Smelter) <- 'Locations Status'
+table1(~ IQ | Smelter, data = mydf)
+
+
+
+```
+
+```{r, include=FALSE}
+
+#creating summary variables for descriptive paragraph below
+far_mean <- round(mean((mydf$IQ[mydf$Smelter =="Far"])),1)
+far_sd <- round(sd((mydf$IQ[mydf$Smelter =="Far"])),1)
+near_mean <- round(mean((mydf$IQ[mydf$Smelter =="Near"])),1)
+near_sd <- round(sd((mydf$IQ[mydf$Smelter =="Near"])),1)
+
+```
+
+
+
+The bar chart and table above show the total summed IQ levels categorized by the proximity to the smelter (far vs near), where IQ levels appear overall lower closer to the smelter. Currently table 1 details the summary statistics for each group across the sample of 124 participants. Participants living farther from the smelter had a higher mean IQ (Mean = `r far_mean`, SD = `r far_sd`) compared to those living closer(Mean = `r near_mean`, SD = `r near_sd`).
+
+
+
+
+```{r update , include=FALSE}
+# 3.	After a brief conversation with the primary investigator, that you find out one individual who had an IQ value of “999” was in fact supposed to have a value of “99”. Make the change to this observation in a code chunk, and reproduce your report. Commit and push all project changes and use the commit message “HW 02 report - update to remove 999 outlier”. 
+
+
+# Fixing 999 outlier
+
+mydf$IQ == 999 #looking for outlier
+
+mydf$IQ[mydf$IQ == 999] <- 99 #setting to 99
+
+
+```
+
+
+
+
+
+```{r kable, results='asis', include=FALSE}
+# Using knit R package (for practice)
+
+#creating summary variables for double checking
+far_mean <- round(mean((mydf$IQ[mydf$Smelter =="Far"])),1)
+far_sd <- round(sd((mydf$IQ[mydf$Smelter =="Far"])),1)
+near_mean <- round(mean((mydf$IQ[mydf$Smelter =="Near"])),1)
+near_sd <- round(sd((mydf$IQ[mydf$Smelter =="Near"])),1)
+
+# Calculate summary statistics by Smelter group
+iq_summary <- mydf %>%
+  group_by(Smelter) %>%
+  summarize(
+    N = n(),
+    `Mean IQ` = round(mean(IQ, na.rm = TRUE), 1),
+    `SD IQ`   = round(sd(IQ, na.rm = TRUE), 1),
+    `Median IQ` = round(median(IQ, na.rm = TRUE), 1)
+  )
+
+# Output as a formatted table
+kable(iq_summary, caption = "Summary Statistics of IQ Levels by Location Status", align = "lccrr")
+
+```
+
+
+<!-- In-line calculations giving the values of the means, that will be updated if the data are changed (hint: use syntax `r `) -->
+
+
+
+
+After a brief conversation with the primary investigator- I find out one individual who had an IQ value of “999” was in fact supposed to have a value of “99”. Make the change to this observation in a code chunk, and reproduce your report. Commit and push all project changes and use the commit message “HW 02 report - update to remove 999 outlier”. 
+
+Participants living farther from the smelter had a higher mean IQ (Mean = `r far_mean`, SD = `r far_sd`) compared to those living closer(Mean = `r near_mean`, SD = `r near_sd`).
+
+
+
+
