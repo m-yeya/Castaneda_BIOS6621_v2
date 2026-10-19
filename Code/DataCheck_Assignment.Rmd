@@ -1,0 +1,546 @@
+---
+title: "DataCheck_Assignment"
+output: html_document
+---
+
+
+```{r, include=FALSE}
+# Import libraries or install packages
+
+#install.packages('tidyverse')
+library(tidyverse)
+library(knitr)
+
+#Installing other packages
+
+#install.packages("kableExtra")
+library('kableExtra')
+
+library(RColorBrewer)
+
+#install.packages('tableone')
+library('tableone')
+
+library('table1')
+library('gtsummary')
+library(tidyverse)
+library(naniar)
+#install.packages('mice')
+library(mice)
+#install.packages('glmnet')
+library('glmnet')
+
+```
+
+   
+
+```{r, include=FALSE}
+# Read in data
+
+df <- read_csv("../DataRaw/BIOS6621_Guth_data.csv")
+
+# Full view of data
+#print(df, n=150)
+
+# Quick view 
+df
+```
+
+
+
+```{r, include=FALSE}
+#----Variable manipulation-------###
+
+ordered_osce <- c("P1FallBodySys_PhysExamScore","P1SprBates_PhysExamScore","P1SprBates_CommScore",
+                 "P1SprBates_MedDocScore", "P2FallRamos_PhysExamScore", "P2FallRamos_CommScore",
+                 "P2FallRamos_OralPresScore", "P2FallPayne_PhysExamScore", "P2FallPayne_CommScore",
+                 "P2FallPayne_MedDocScore", "P2SpringHyde_PhysExamScore", "P2SpringHyde_CommScore",
+                 "P2SpringHyde_MedDocScore","P2SpringSnelling_PhysExamScore", "P2SpringSnelling_CommScore",
+                 "P2SpringSnelling_MedDocScore")
+
+#these below excludes any OralPresScore and MedDocScore
+final_ordered_osce <- c("P1FallBodySys_PhysExamScore","P1SprBates_PhysExamScore","P1SprBates_CommScore",
+                 "P2FallRamos_PhysExamScore", "P2FallRamos_CommScore",
+                 "P2FallPayne_PhysExamScore","P2FallPayne_CommScore",
+                 "P2SpringHyde_PhysExamScore", "P2SpringHyde_CommScore",
+                 "P2SpringSnelling_PhysExamScore", "P2SpringSnelling_CommScore")
+
+
+df <- df |> 
+  mutate(gender = factor(gender, levels = c('M', 'F','D'), labels = c('Male', 'Female', 'unknown')))
+
+
+df <- df |> 
+  mutate(URM = factor(URM, levels = c(0, 1, 3), labels = c('Non-URM', 'URM', 'unknown')))
+
+
+df <- df |> 
+   mutate(URM_AAMC = factor(URM_AAMC, levels = c(0, 1, 3), labels = c('Non-URiM', 'URiM', 'unknown'))) 
+
+
+df <- df |> mutate(across(ends_with("_Final_Course_Grade"),
+                    ~ factor(.x,
+                             levels = c(0,1,2,3,9),
+                             labels = c('Fail', 'Pass', 'High Pass', 'Honors', 'Pass with remediation')))) 
+
+
+df <- df |> mutate(across(ends_with("_clinical_grade"),
+                   ~ factor(.x, 
+                            levels = c(0,1,2,3,9),
+                            labels= c('Fail', 'Pass', 'High Pass', 
+                                      'Honors', 'Pass with remediation'))))
+
+#Creating relevant tables (clinical clerkship and final clerkship grades)
+
+clinical_table <- df |> select(ends_with("_clinical_grade"), 'URM')
+  
+course_grades <- df |> select(all_of(ends_with("_Final_Course_Grade")), 'URM') 
+
+usmle_scores_prep  <- df |> select('STEP1_ExamScore', 'STEP2CK_ExamScore', 'URM') 
+
+```
+
+
+```{r, echo=FALSE}
+tbl_summary(df)
+#tbl_summary(usmle_scores_prep)
+summary(df$URM)
+summary(df$gender)
+
+df |> select(all_of(ordered_osce), STEP1_ExamScore, STEP2CK_ExamScore) |> summary()
+
+#Notes from the tables above: There's many with missing NA's M
+
+
+tbl_summary(clinical_table)
+tbl_summary(course_grades)
+
+#extra summary tables for fun!
+#summary(clinical_table)
+#summary(course_grades)
+
+
+#Histogram of USMLE scores (Step 1 and Step 2) (continuous)
+hist(df$STEP1_ExamScore) #distribution looks ok
+
+hist(df$STEP2CK_ExamScore) #distribution looks ideal
+
+
+```
+
+
+
+
+Gender variable: The variable gender for this data set is pretty equal, there is one row that has that variable marked as 'unknown'. N=198 with either male or female 
+
+URM variable vs URM_AAMC : The URM variable provides higher overall representation of underrepresented in medicine students within the cohort compared to the stricter criteria, preventing small sample size limitations, maintaining adequate statistical power, and allowing for a more robust comparative evaluation.
+
+
+Clinical vs Final Clerkship grades: Guth during video mention a focus on the final clerkship grades. There is a lot of missingness for some (RRC, AAC) and others have only one option heavily preferred of 'Pass' (ES, MSK)
+
+USMLE scores: these don't look like there is anything weird going on here - good!
+
+OSCE: aggregated osce scores across competency/component (communication or physical exam - these were the ones Guth had the most interest in)
+
+
+
+
+
+
+
+
+
+```{r, echo=FALSE}
+osce_stat_table <- df |> 
+  summarise(across(all_of(final_ordered_osce), 
+                   list(
+                     Mean = ~mean(.x, na.rm = TRUE),
+                     SD   = ~sd(.x, na.rm = TRUE),
+                     Median = ~median(.x, na.rm = TRUE),
+                     IQR  = ~IQR(.x, na.rm = TRUE),
+                     Min  = ~min(.x, na.rm = TRUE),
+                     Max  = ~max(.x, na.rm = TRUE),
+                     N    = ~sum(!is.na(.x))
+                   ))) |> 
+  # Pivot longer safely by splitting at the *last* underscore
+  pivot_longer(
+    cols = everything(),
+    names_to = c("OSCE_Exam", "Statistic"),
+    names_pattern = "^(.*)_(Mean|SD|Median|IQR|Min|Max|N)$"
+  ) |> 
+  # Pivot wider using the correct 'value' column name generated by pivot_longer
+  pivot_wider(
+    names_from = Statistic,
+    values_from = value
+  )
+osce_stat_table
+```
+
+
+```{r, echo=FALSE}
+osce_stat_table_urm <- df |> 
+  filter(URM %in% c("Non-URM", "URM")) |> 
+  group_by(URM) |> 
+  summarise(across(all_of(final_ordered_osce), 
+                   list(
+                     Mean = ~mean(.x, na.rm = TRUE),
+                     SD   = ~sd(.x, na.rm = TRUE),
+                     Median = ~median(.x, na.rm = TRUE),
+                     IQR  = ~IQR(.x, na.rm = TRUE),
+                     Min  = ~min(.x, na.rm = TRUE),
+                     Max  = ~max(.x, na.rm = TRUE),
+                     N    = ~sum(!is.na(.x))
+                   ))) |> 
+  pivot_longer(
+    cols = -URM,
+    names_to = c("OSCE_Exam", "Statistic"),
+    names_pattern = "^(.*)_(Mean|SD|Median|IQR|Min|Max|N)$"
+  ) |> 
+  pivot_wider(
+    names_from = Statistic,
+    values_from = value
+  )
+
+osce_stat_table_urm
+```
+
+
+
+```{r, echo=FALSE}
+osce_stat_table |> 
+ggplot(aes(x = reorder(OSCE_Exam, Mean), y = Mean, fill = OSCE_Exam)) +
+  # Draw the bars for the mean score
+  geom_col(alpha = 0.8, show.legend = FALSE) +
+  # Add error bars representing +/- 1 Standard Deviation
+  geom_errorbar(aes(ymin = Mean - SD, ymax = Mean + SD), width = 0.2) +
+  # Flip coordinates so exam names are easy to read on the y-axis
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Mean Scores with Standard Deviation by OSCE Exam",
+    x = "OSCE Exam",
+    y = "Mean Score"
+  )
+```
+
+
+
+```{r, echo=FALSE}
+# Summary table grouped by URM and OSCE exams
+osce_urm_summary_table <- df |> 
+  filter(URM %in% c("Non-URM", "URM")) |> 
+  group_by(URM) |> 
+  summarise(across(all_of(final_ordered_osce), 
+                   list(
+                     Mean = ~mean(.x, na.rm = TRUE),
+                     SD   = ~sd(.x, na.rm = TRUE)
+                   ))) |> 
+  pivot_longer(
+    cols = -URM,
+    names_to = c("OSCE_Exam", "Statistic"),
+    names_pattern = "^(.*)_(Mean|SD)$"
+  ) |> 
+  pivot_wider(
+    names_from = Statistic,
+    values_from = value
+  )
+
+# Create the side-by-side grouped bar chart with error bars
+osce_urm_summary_table |> 
+  ggplot(aes(x = reorder(OSCE_Exam, Mean), y = Mean, fill = URM)) +
+  # position_dodge places the URM and Non-URM bars side-by-side
+  geom_col(position = position_dodge(0.8), width = 0.7, alpha = 0.8) +
+  # Match the error bar position to the dodged bars
+  geom_errorbar(aes(ymin = Mean - SD, ymax = Mean + SD), 
+                position = position_dodge(0.8), width = 0.2) +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Mean OSCE Scores by URM Status With SD",
+    x = "OSCE Exam",
+    y = "Mean Score",
+    fill = "URM Status"
+  )
+```
+
+
+```{r, echo=FALSE}
+
+# I had AI help with this code below. I used Gemini 3 to help me with combining of 
+# groups with grepl. I also used grepl documentation to double check other arguments I could use. 
+# grepl documentation https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/grep
+
+
+df_categorized <- df |> 
+  filter(URM %in% c("Non-URM", "URM")) |> 
+  select(URM, all_of(final_ordered_osce)) |> 
+  pivot_longer(
+    cols = -URM,
+    names_to = "Exam_Name",
+    values_to = "Score"
+  ) |> 
+  # Create a grouped category based on keywords in the exam names
+  mutate(Competency = case_when(
+    grepl("Comm", Exam_Name, ignore.case = TRUE) ~ "Communication Score",
+    grepl("Phys|Physical", Exam_Name, ignore.case = TRUE) ~ "Physical Exam Score",
+    grepl("Med|Doc", Exam_Name, ignore.case = TRUE) ~ "Medical Documentation",
+    grepl("Oral|Pres", Exam_Name, ignore.case = TRUE) ~ "Oral Presentation",
+    TRUE ~ "Other" # Catch-all for any remaining exams
+  ))
+
+
+competency_summary <- df_categorized |> 
+  group_by(URM, Competency) |> 
+  summarise(
+    Mean = mean(Score, na.rm = TRUE),
+    SD = sd(Score, na.rm = TRUE),
+    .groups = "drop"
+  ) |> 
+  ggplot(aes(x = reorder(Competency, Mean), y = Mean, fill = URM)) +
+  geom_col(position = position_dodge(0.8), width = 0.7, alpha = 0.8) +
+  geom_errorbar(aes(ymin = Mean - SD, ymax = Mean + SD), 
+                position = position_dodge(0.8), width = 0.2) +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Aggregated OSCE Competency Scores by URM Status",
+    x = "Competency Category",
+    y = "Mean Score",
+    fill = "URM Status"
+  )
+
+competency_summary
+
+```
+
+```{r, echo=FALSE}
+
+competency_stat_table <- df |> 
+  filter(URM %in% c("Non-URM", "URM")) |> 
+  select(URM, all_of(final_ordered_osce)) |> 
+  pivot_longer(
+    cols = -URM,
+    names_to = "Exam_Name",
+    values_to = "Score"
+  ) |> 
+  mutate(Competency = case_when(
+    grepl("Comm", Exam_Name, ignore.case = TRUE) ~ "Communication Score",
+    grepl("Phys|Physical", Exam_Name, ignore.case = TRUE) ~ "Physical Exam Score",
+    grepl("Med|Doc", Exam_Name, ignore.case = TRUE) ~ "Medical Documentation",
+    grepl("Oral|Pres", Exam_Name, ignore.case = TRUE) ~ "Oral Presentation",
+    TRUE ~ "Other"
+  )) |> 
+  filter(!is.na(Score)) |> 
+  group_by(URM, Competency) |> 
+  summarise(
+    Mean   = mean(Score, na.rm = TRUE),
+    SD     = sd(Score, na.rm = TRUE),
+    Median = median(Score, na.rm = TRUE),
+    IQR    = IQR(Score, na.rm = TRUE),
+    Min    = min(Score, na.rm = TRUE),
+    Max    = max(Score, na.rm = TRUE),
+    N      = sum(!is.na(Score)),
+    .groups = "drop"
+  ) |> 
+  arrange(Competency, URM)
+
+
+competency_stat_table
+
+
+```
+
+
+
+```{r, echo=FALSE}
+df_categorized |> 
+  ggplot(aes(x = Competency, y = Score, fill = URM)) +
+  # Draw boxplots with some transparency
+  geom_boxplot(alpha = 0.7, position = position_dodge(0.8)) +
+  # Flip coordinates so category names are easy to read
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "OSCE Competency Score Distributions by URM Status",
+    x = "Competency Category",
+    y = "Score",
+    fill = "URM Status"
+  )
+```
+
+
+```{r, include=FALSE}
+
+#Including all data (7 unknown URM status)
+usmle_scores_prep |> 
+  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
+               names_to = "Exam", 
+               values_to = "Score") |> 
+  ggplot(aes(x = URM, y = Score, fill = URM)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Exam) +
+  theme_minimal() +
+  labs(title = "USMLE Score Distribution by URM Status",
+       x = "URM Status",
+       y = "Exam Score",
+       fill = "URM Status")
+
+```
+
+
+
+
+```{r, echo=FALSE}
+#Including only URM and non-URM groups
+usmle_scores_prep |> 
+  filter(URM %in% c("Non-URM", "URM")) |> 
+  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
+               names_to = "Exam", 
+               values_to = "Score") |> 
+  ggplot(aes(x = URM, y = Score, fill = URM)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Exam) +
+  theme_minimal() +
+  labs(title = "USMLE Score Distribution by URM Status",
+       x = "URM Status",
+       y = "Exam Score",
+       fill = "URM Status")
+```
+
+```{r, echo=FALSE}
+# ---- 4. USMLE scores by URM status table----
+usmle_tbl <- df %>%
+  # Use URM instead of URM_grp, and filter for valid groups
+  filter(URM %in% c("Non-URM", "URM")) %>%
+  select(URM, STEP1_ExamScore, STEP2CK_ExamScore) %>%
+  tbl_summary(
+    by = URM,
+    label = list(STEP1_ExamScore ~ "USMLE Step 1", STEP2CK_ExamScore ~ "USMLE Step 2 CK"),
+    type = all_continuous() ~ "continuous2",
+    statistic = all_continuous() ~ c("{mean} ({sd})", "{median} [{p25}, {p75}]"),
+    digits = all_continuous() ~ 1,
+    missing_text = "Missing"
+  ) %>%
+   add_overall() #%>%
+  # # Kept add_difference (removed add_p to prevent the column collision error)
+  # add_difference(test = all_continuous() ~ "t.test") %>%
+  # bold_labels()
+usmle_tbl
+```
+
+
+
+```{r, echo=FALSE}
+urm_status_clinical <- clinical_table |>   
+  pivot_longer(
+    cols = ends_with("_clinical_grade"),
+    names_to = "Clinical_Clerkship",
+    values_to = "Grade"
+  ) |> 
+  # Fixed: Use %in% and separate the is.na condition with a comma
+  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |> 
+  ggplot(aes(x = URM, fill = Grade)) +
+  geom_bar(position = "dodge", alpha = 0.8) +
+  facet_wrap(~ Clinical_Clerkship) +
+  theme_minimal() +
+  labs(
+    title = "Clinical Clerkship Grades by URM Status",
+    x = "URM Status",
+    y = "Number of Students",
+    fill = "Grade"
+  )
+
+urm_status_clinical
+```
+
+
+```{r, echo=FALSE}
+urm_status_final_grades <- df |>    
+  pivot_longer(
+    cols = ends_with("_Final_Course_Grade"),
+    names_to = "Final_Course",
+    values_to = "Grade"
+  ) |>    
+  # Remove "_Final_Course_Grade" to leave just the course prefix
+  mutate(Final_Course = gsub("_Final_Course_Grade", "", Final_Course)) |> 
+  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |>   
+  ggplot(aes(x = URM, fill = Grade)) +
+  geom_bar(position = "dodge", alpha = 0.8) +
+  facet_wrap(~ Final_Course) +
+  theme_minimal() +
+  labs(
+    title = "Final Course Grades by URM Status",
+    x = "URM Status",
+    y = "Number of Students",
+    fill = "Grade"
+  )
+
+urm_status_final_grades
+```
+
+
+
+
+```{r, echo=FALSE}
+#---Osce missingness table- not grouped-----##
+miss_tbl <- df %>%
+  select(URM, all_of(final_ordered_osce), STEP1_ExamScore, STEP2CK_ExamScore) %>%
+  summarise(across(-URM, list(n_miss = ~sum(is.na(.x)),
+                                  pct_miss = ~round(mean(is.na(.x)) * 100, 1)))) %>%
+  pivot_longer(everything(), names_to = c("variable", ".value"),
+               names_pattern = "(.*)_(n_miss|pct_miss)") %>%
+  mutate(variable = factor(variable, levels = c(final_ordered_osce, "STEP1_ExamScore", "STEP2CK_ExamScore"))) %>%
+  arrange(variable)
+view(miss_tbl)
+
+```
+
+
+
+
+
+```{r, echo=FALSE}
+
+#Checking OSCE missingness per cases(rows) to figure out if there's anything weird or that we have to change
+# ---- 1. Number of missing OSCE scores per student ----
+osce_missing <- df %>%
+  mutate(n_osce_miss = rowSums(is.na(across(all_of(final_ordered_osce)))),
+         pct_osce_miss = round(n_osce_miss / length(final_ordered_osce) * 100, 1))
+
+
+all_n_osce_missing <- osce_missing %>% count(n_osce_miss) %>% mutate(pct = round(n / sum(n) * 100, 1))
+
+all_n_osce_missing
+
+urm_osce_miss <- osce_missing %>% count(URM, n_osce_miss) %>%
+  group_by(URM) %>% mutate(pct = round(n / sum(n) * 100, 1))
+
+urm_osce_miss
+
+# ---- 3. Is missingness related to URM status? ----
+osce_missing_stat <- osce_missing %>% filter(URM %in% c("Non-URM", "URM")) %>%
+  group_by(URM) %>%
+  summarise(n = n(), 
+            mean_miss = mean(n_osce_miss), 
+            median_miss = median(n_osce_miss),
+            pct_any_missing = mean(n_osce_miss > 0) * 100)
+
+osce_missing_stat
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
