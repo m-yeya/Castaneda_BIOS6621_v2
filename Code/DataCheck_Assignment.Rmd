@@ -90,7 +90,7 @@ df <- df |> mutate(across(ends_with("_clinical_grade"),
                             labels= c('Fail', 'Pass', 'High Pass', 
                                       'Honors', 'Pass with remediation'))))
 
-#Creating relevant tables (clinical clerkship and final clerkship grades)
+#Creating relevant tables (clinical clerkship and final clerkship grades, USMLE scores)
 
 clinical_table <- df |> select(ends_with("_clinical_grade"), 'URM')
   
@@ -104,26 +104,177 @@ usmle_scores_prep  <- df |> select('STEP1_ExamScore', 'STEP2CK_ExamScore', 'URM'
 ```{r, echo=FALSE}
 tbl_summary(df)
 #tbl_summary(usmle_scores_prep)
-summary(df$URM)
-summary(df$gender)
 
-df |> select(all_of(ordered_osce), STEP1_ExamScore, STEP2CK_ExamScore) |> summary()
-
-#Notes from the tables above: There's many with missing NA's M
-
-
-tbl_summary(clinical_table)
-tbl_summary(course_grades)
+#df |> select(all_of(ordered_osce), STEP1_ExamScore, STEP2CK_ExamScore) |> summary()
 
 #extra summary tables for fun!
 #summary(clinical_table)
 #summary(course_grades)
+```
 
 
+
+Gender variable: The variable gender for this data set is pretty equal, there is one row that has that variable marked as 'unknown'. N=198 with either male or female 
+
+```{r, echo=FALSE}
+
+summary(df$gender)
+```
+
+
+URM variable vs URM_AAMC : The URM variable provides higher overall representation of underrepresented in medicine students within the cohort compared to the stricter criteria (URM_AAMC). I suggest we use the URM variable in analysis for preventing small sample size limitations, maintaining adequate statistical power, and allowing for a more robust comparative evaluation.
+
+```{r, echo=FALSE}
+
+summary(df$URM)
+
+```
+```{r, echo=FALSE}
+summary(df$URM_AAMC)
+```
+
+
+Clinical vs Final Clerkship grades: Guth during video mentions a wanting to focus on the final clerkship grades. There is a lot of missingness for some final clerkship grades (RRC, AAC) and others have only one option heavily preferred of 'Pass' (EC, MSK)
+
+```{r, echo=FALSE}
+tbl_summary(clinical_table)
+
+```
+
+```{r, echo=FALSE}
+urm_status_clinical <- clinical_table |>   
+  pivot_longer(
+    cols = ends_with("_clinical_grade"),
+    names_to = "Clinical_Clerkship",
+    values_to = "Grade"
+  ) |> 
+  # Fixed: Use %in% and separate the is.na condition with a comma
+  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |> 
+  ggplot(aes(x = URM, fill = Grade)) +
+  geom_bar(position = "dodge", alpha = 0.8) +
+  facet_wrap(~ Clinical_Clerkship) +
+  theme_minimal() +
+  labs(
+    title = "Clinical Clerkship Grades by URM Status",
+    x = "URM Status",
+    y = "Number of Students",
+    fill = "Grade"
+  )
+
+urm_status_clinical
+```
+
+```{r, echo=FALSE}
+tbl_summary(course_grades)
+```
+
+
+
+```{r, echo=FALSE}
+
+urm_status_final_grades <- df |>    
+  pivot_longer(
+    cols = ends_with("_Final_Course_Grade"),
+    names_to = "Final_Course",
+    values_to = "Grade"
+  ) |>    
+  # Remove "_Final_Course_Grade" to leave just the course prefix
+  mutate(Final_Course = gsub("_Final_Course_Grade", "", Final_Course)) |> 
+  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |>   
+  ggplot(aes(x = URM, fill = Grade)) +
+  geom_bar(position = "dodge", alpha = 0.8) +
+  facet_wrap(~ Final_Course) +
+  theme_minimal() +
+  labs(
+    title = "Final Course Grades by URM Status",
+    x = "URM Status",
+    y = "Number of Students",
+    fill = "Grade"
+  )
+
+urm_status_final_grades
+```
+
+
+
+
+
+
+
+USMLE scores: these don't look like there is anything weird going on here - good!
+
+
+```{r, echo=FALSE}
+# ---- 4. USMLE scores by URM status table----
+usmle_tbl <- df %>%
+  # Use URM instead of URM_grp, and filter for valid groups
+  filter(URM %in% c("Non-URM", "URM")) %>%
+  select(URM, STEP1_ExamScore, STEP2CK_ExamScore) %>%
+  tbl_summary(
+    by = URM,
+    label = list(STEP1_ExamScore ~ "USMLE Step 1", STEP2CK_ExamScore ~ "USMLE Step 2 CK"),
+    type = all_continuous() ~ "continuous2",
+    statistic = all_continuous() ~ c("{mean} ({sd})", "{median} [{p25}, {p75}]"),
+    digits = all_continuous() ~ 1,
+    missing_text = "Missing"
+  ) %>%
+   add_overall() #%>%
+  # # Kept add_difference (removed add_p to prevent the column collision error)
+  # add_difference(test = all_continuous() ~ "t.test") %>%
+  # bold_labels()
+usmle_tbl
+```
+
+
+
+```{r, include=FALSE}
+
+#Including all data (7 unknown URM status)
+usmle_scores_prep |> 
+  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
+               names_to = "Exam", 
+               values_to = "Score") |> 
+  ggplot(aes(x = URM, y = Score, fill = URM)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Exam) +
+  theme_minimal() +
+  labs(title = "USMLE Score Distribution by URM Status",
+       x = "URM Status",
+       y = "Exam Score",
+       fill = "URM Status")
+
+```
+
+
+
+
+```{r, echo=FALSE}
+#Including only URM and non-URM groups
+usmle_scores_prep |> 
+  filter(URM %in% c("Non-URM", "URM")) |> 
+  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
+               names_to = "Exam", 
+               values_to = "Score") |> 
+  ggplot(aes(x = URM, y = Score, fill = URM)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Exam) +
+  theme_minimal() +
+  labs(title = "USMLE Score Distribution by URM Status",
+       x = "URM Status",
+       y = "Exam Score",
+       fill = "URM Status")
+```
+
+```{r, echo=FALSE}
 #Histogram of USMLE scores (Step 1 and Step 2) (continuous)
 hist(df$STEP1_ExamScore) #distribution looks ok
 
 hist(df$STEP2CK_ExamScore) #distribution looks ideal
+
+```
+
+
+```{r}
 
 
 ```
@@ -131,24 +282,8 @@ hist(df$STEP2CK_ExamScore) #distribution looks ideal
 
 
 
-Gender variable: The variable gender for this data set is pretty equal, there is one row that has that variable marked as 'unknown'. N=198 with either male or female 
-
-URM variable vs URM_AAMC : The URM variable provides higher overall representation of underrepresented in medicine students within the cohort compared to the stricter criteria, preventing small sample size limitations, maintaining adequate statistical power, and allowing for a more robust comparative evaluation.
-
-
-Clinical vs Final Clerkship grades: Guth during video mention a focus on the final clerkship grades. There is a lot of missingness for some (RRC, AAC) and others have only one option heavily preferred of 'Pass' (ES, MSK)
-
-USMLE scores: these don't look like there is anything weird going on here - good!
 
 OSCE: aggregated osce scores across competency/component (communication or physical exam - these were the ones Guth had the most interest in)
-
-
-
-
-
-
-
-
 
 ```{r, echo=FALSE}
 osce_stat_table <- df |> 
@@ -201,7 +336,7 @@ osce_stat_table_urm <- df |>
     values_from = value
   )
 
-osce_stat_table_urm
+view(osce_stat_table_urm)
 ```
 
 
@@ -367,117 +502,6 @@ df_categorized |>
     fill = "URM Status"
   )
 ```
-
-
-```{r, include=FALSE}
-
-#Including all data (7 unknown URM status)
-usmle_scores_prep |> 
-  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
-               names_to = "Exam", 
-               values_to = "Score") |> 
-  ggplot(aes(x = URM, y = Score, fill = URM)) +
-  geom_boxplot(alpha = 0.7) +
-  facet_wrap(~ Exam) +
-  theme_minimal() +
-  labs(title = "USMLE Score Distribution by URM Status",
-       x = "URM Status",
-       y = "Exam Score",
-       fill = "URM Status")
-
-```
-
-
-
-
-```{r, echo=FALSE}
-#Including only URM and non-URM groups
-usmle_scores_prep |> 
-  filter(URM %in% c("Non-URM", "URM")) |> 
-  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
-               names_to = "Exam", 
-               values_to = "Score") |> 
-  ggplot(aes(x = URM, y = Score, fill = URM)) +
-  geom_boxplot(alpha = 0.7) +
-  facet_wrap(~ Exam) +
-  theme_minimal() +
-  labs(title = "USMLE Score Distribution by URM Status",
-       x = "URM Status",
-       y = "Exam Score",
-       fill = "URM Status")
-```
-
-```{r, echo=FALSE}
-# ---- 4. USMLE scores by URM status table----
-usmle_tbl <- df %>%
-  # Use URM instead of URM_grp, and filter for valid groups
-  filter(URM %in% c("Non-URM", "URM")) %>%
-  select(URM, STEP1_ExamScore, STEP2CK_ExamScore) %>%
-  tbl_summary(
-    by = URM,
-    label = list(STEP1_ExamScore ~ "USMLE Step 1", STEP2CK_ExamScore ~ "USMLE Step 2 CK"),
-    type = all_continuous() ~ "continuous2",
-    statistic = all_continuous() ~ c("{mean} ({sd})", "{median} [{p25}, {p75}]"),
-    digits = all_continuous() ~ 1,
-    missing_text = "Missing"
-  ) %>%
-   add_overall() #%>%
-  # # Kept add_difference (removed add_p to prevent the column collision error)
-  # add_difference(test = all_continuous() ~ "t.test") %>%
-  # bold_labels()
-usmle_tbl
-```
-
-
-
-```{r, echo=FALSE}
-urm_status_clinical <- clinical_table |>   
-  pivot_longer(
-    cols = ends_with("_clinical_grade"),
-    names_to = "Clinical_Clerkship",
-    values_to = "Grade"
-  ) |> 
-  # Fixed: Use %in% and separate the is.na condition with a comma
-  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |> 
-  ggplot(aes(x = URM, fill = Grade)) +
-  geom_bar(position = "dodge", alpha = 0.8) +
-  facet_wrap(~ Clinical_Clerkship) +
-  theme_minimal() +
-  labs(
-    title = "Clinical Clerkship Grades by URM Status",
-    x = "URM Status",
-    y = "Number of Students",
-    fill = "Grade"
-  )
-
-urm_status_clinical
-```
-
-
-```{r, echo=FALSE}
-urm_status_final_grades <- df |>    
-  pivot_longer(
-    cols = ends_with("_Final_Course_Grade"),
-    names_to = "Final_Course",
-    values_to = "Grade"
-  ) |>    
-  # Remove "_Final_Course_Grade" to leave just the course prefix
-  mutate(Final_Course = gsub("_Final_Course_Grade", "", Final_Course)) |> 
-  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |>   
-  ggplot(aes(x = URM, fill = Grade)) +
-  geom_bar(position = "dodge", alpha = 0.8) +
-  facet_wrap(~ Final_Course) +
-  theme_minimal() +
-  labs(
-    title = "Final Course Grades by URM Status",
-    x = "URM Status",
-    y = "Number of Students",
-    fill = "Grade"
-  )
-
-urm_status_final_grades
-```
-
 
 
 
