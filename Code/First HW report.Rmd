@@ -84,12 +84,13 @@ far_mean <- round(mean((mydf$IQ[mydf$Smelter =="Far"])),1)
 far_sd <- round(sd((mydf$IQ[mydf$Smelter =="Far"])),1)
 near_mean <- round(mean((mydf$IQ[mydf$Smelter =="Near"])),1)
 near_sd <- round(sd((mydf$IQ[mydf$Smelter =="Near"])),1)
+sample_n <- nrow(mydf)
 
 ```
 
 
 
-The bar chart above shows the total summed IQ levels categorized by the proximity to the smelter (far vs near), where IQ levels appear overall lower closer to the smelter. The above table 1 details the summary statistics for each group across the sample of 124 participants. Participants living farther from the smelter had a higher mean IQ (Mean = `r far_mean`, SD = `r far_sd`) compared to those living closer(Mean = `r near_mean`, SD = `r near_sd`).
+The bar chart above shows the total summed IQ levels categorized by the proximity to the smelter (far vs near), where IQ levels appear overall lower closer to the smelter. The above table 1 details the summary statistics for each group across the sample of `r sample_n` participants. Participants living farther from the smelter had a higher mean IQ (Mean = `r far_mean`, SD = `r far_sd`) compared to those living closer(Mean = `r near_mean`, SD = `r near_sd`).
 
 
 
