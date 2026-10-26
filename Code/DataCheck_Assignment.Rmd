@@ -1,11 +1,11 @@
 ---
-title: "DataCheck_Assignment"
+title: "Data Checking - Dr. Guth Project"
 output: html_document
 ---
 
 
 ```{r, include=FALSE}
-# Import libraries or install packages
+#----Import libraries or install packages-------###
 
 #install.packages('tidyverse')
 library(tidyverse)
@@ -35,7 +35,7 @@ library('glmnet')
    
 
 ```{r, include=FALSE}
-# Read in data
+#----Read in data-------###
 
 df <- read_csv("../DataRaw/BIOS6621_Guth_data.csv")
 
@@ -101,7 +101,11 @@ usmle_scores_prep  <- df |> select('STEP1_ExamScore', 'STEP2CK_ExamScore', 'URM'
 ```
 
 
+<details>
+<summary>Click to expand: Overall Table Summary Check Before Data Manipulation</summary>
+
 ```{r, echo=FALSE}
+#----Overall Table Summary-------###
 tbl_summary(df)
 #tbl_summary(usmle_scores_prep)
 
@@ -112,16 +116,9 @@ tbl_summary(df)
 #summary(course_grades)
 ```
 
+</details>
 
-
-Gender variable: The variable gender for this data set is pretty equal, there is one row that has that variable marked as 'unknown'. N=198 with either male or female 
-
-```{r, echo=FALSE}
-
-summary(df$gender)
-```
-
-
+Underrepresented in Medicine Variables-
 URM variable vs URM_AAMC : The URM variable provides higher overall representation of underrepresented in medicine students within the cohort compared to the stricter criteria (URM_AAMC). I suggest we use the URM variable in analysis for preventing small sample size limitations, maintaining adequate statistical power, and allowing for a more robust comparative evaluation.
 
 ```{r, echo=FALSE}
@@ -133,161 +130,121 @@ summary(df$URM)
 summary(df$URM_AAMC)
 ```
 
+OSCE Variables-
 
-Clinical vs Final Clerkship grades: Guth during video mentions a wanting to focus on the final clerkship grades. There is a lot of missingness for some final clerkship grades (RRC, AAC) and others have only one option heavily preferred of 'Pass' (EC, MSK)
+OSCE: PI mentioned that they are most interested in the Communication and Physical examination OSCE exam scores, these will be treated as primary outcomes. OSCE scores were aggregated across component (communication, physical examination, medical documentation, or oral)
+
+
 
 ```{r, echo=FALSE}
-tbl_summary(clinical_table)
+#---Osce missingness table------##
+miss_tbl <- df %>%
+  select(URM, all_of(ordered_osce)) %>%
+  summarise(across(-URM, list(n_miss = ~sum(is.na(.x)),
+                                  pct_miss = ~round(mean(is.na(.x)) * 100, 1)))) %>%
+  pivot_longer(everything(), names_to = c("variable", ".value"),
+               names_pattern = "(.*)_(n_miss|pct_miss)") %>%
+  mutate(variable = factor(variable, levels = c(ordered_osce, "STEP1_ExamScore", "STEP2CK_ExamScore"))) %>%
+  arrange(variable)
+
+miss_tbl
+```
+
+This table above summarizes the missing data analysis, showing the count (n_miss) and percentage (pct_miss) of missing values for various OSCE component scores and exam metrics. Across the listed variables, missingness ranges from `r min(miss_tbl$n_miss)` to `r max(miss_tbl$n_miss)` observations, representing roughly `r min(miss_tbl$pct_miss)`% to `r max(miss_tbl$pct_miss)`% of the dataset.
+
+
+
+```{r, echo=FALSE}
+
+#Checking OSCE missingness per cases(rows) to figure out if there's anything weird or that we have to change
+# ---- 1. Number of missing OSCE scores per student ----
+osce_missing <- df %>%
+  mutate(n_osce_miss = rowSums(is.na(across(all_of(ordered_osce)))),
+         pct_osce_miss = round(n_osce_miss / length(ordered_osce) * 100, 1))
+
+
+all_n_osce_missing <- osce_missing %>% count(n_osce_miss) %>% mutate(pct = round(n / sum(n) * 100, 1))
+
+all_n_osce_missing
+
 
 ```
 
-```{r, echo=FALSE}
-urm_status_clinical <- clinical_table |>   
-  pivot_longer(
-    cols = ends_with("_clinical_grade"),
-    names_to = "Clinical_Clerkship",
-    values_to = "Grade"
-  ) |> 
-  # Fixed: Use %in% and separate the is.na condition with a comma
-  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |> 
-  ggplot(aes(x = URM, fill = Grade)) +
-  geom_bar(position = "dodge", alpha = 0.8) +
-  facet_wrap(~ Clinical_Clerkship) +
-  theme_minimal() +
-  labs(
-    title = "Clinical Clerkship Grades by URM Status",
-    x = "URM Status",
-    y = "Number of Students",
-    fill = "Grade"
-  )
+This table above evaluates missing OSCE scores at the student level, showing that the majority of students `r max(all_n_osce_missing$n[all_n_osce_missing$n_osce_miss == 0])` students, or (`r max(all_n_osce_missing$pct[all_n_osce_missing$n_osce_miss == 0])`%) have complete data with zero missing scores. Across the remaining students, missing OSCE counts range from `r min(all_n_osce_missing$n_osce_miss[all_n_osce_missing$n_osce_miss > 0])` to `r max(all_n_osce_missing$n_osce_miss)` missing items (16 missing items = all OSCE component scores).
 
-urm_status_clinical
+
+
+
+```{r, echo=FALSE}
+# Filter out students with completely missing OSCE data (16 missing scores)
+df_clean <- osce_missing %>% 
+  filter(n_osce_miss < max(n_osce_miss))
+
 ```
 
+After excluding `r nrow(osce_missing) - nrow(df_clean)` students who lacked complete OSCE data, the analytical sample for the new dataframe (df_clean) was reduced to a sample size of N = `r nrow(df_clean)`.
+
+
+
 ```{r, echo=FALSE}
-tbl_summary(course_grades)
+df_clean %>% 
+  filter(URM == "unknown") %>% 
+  select(URM, URM_AAMC, amcasEthnicityDesc, amcas_othethnicity, additional_ethnicity, race_desc, race_cat_desc, additional_race)
+
 ```
 
 
+The above table confirms that 6 students actively declined to report their race/ethnicity on their applications, making it impossible to categorize their URM status and justifying their exclusion from the final analytical sample.
 
 ```{r, echo=FALSE}
-
-urm_status_final_grades <- df |>    
-  pivot_longer(
-    cols = ends_with("_Final_Course_Grade"),
-    names_to = "Final_Course",
-    values_to = "Grade"
-  ) |>    
-  # Remove "_Final_Course_Grade" to leave just the course prefix
-  mutate(Final_Course = gsub("_Final_Course_Grade", "", Final_Course)) |> 
-  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |>   
-  ggplot(aes(x = URM, fill = Grade)) +
-  geom_bar(position = "dodge", alpha = 0.8) +
-  facet_wrap(~ Final_Course) +
-  theme_minimal() +
-  labs(
-    title = "Final Course Grades by URM Status",
-    x = "URM Status",
-    y = "Number of Students",
-    fill = "Grade"
-  )
-
-urm_status_final_grades
+df_final <- df_clean %>% 
+  filter(URM != "unknown")
 ```
+After excluding `r nrow(df_clean) - nrow(df_final)` students with unknown URM status, the final analytical sample comprised N = `r nrow(df_final)` students.
 
 
 
-
-
-
-
-USMLE scores: these don't look like there is anything weird going on here - good!
-
-
-```{r, echo=FALSE}
-# ---- 4. USMLE scores by URM status table----
-usmle_tbl <- df %>%
-  # Use URM instead of URM_grp, and filter for valid groups
-  filter(URM %in% c("Non-URM", "URM")) %>%
-  select(URM, STEP1_ExamScore, STEP2CK_ExamScore) %>%
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Table 1 stratified by URM status
+df_final %>%
+  mutate(URM = droplevels(URM),
+         gender = droplevels(gender)) %>%
+  select(
+    URM, 
+    gender, 
+    STEP1_ExamScore, 
+    STEP2CK_ExamScore, 
+    all_of(ordered_osce),
+  ) %>% 
   tbl_summary(
     by = URM,
-    label = list(STEP1_ExamScore ~ "USMLE Step 1", STEP2CK_ExamScore ~ "USMLE Step 2 CK"),
-    type = all_continuous() ~ "continuous2",
-    statistic = all_continuous() ~ c("{mean} ({sd})", "{median} [{p25}, {p75}]"),
+    type = list(
+      all_of(c(
+        "P1SprBates_CommScore", 
+        "P2FallRamos_CommScore", 
+        "P2FallRamos_OralPresScore", 
+        "P2SpringSnelling_CommScore"
+      )) ~ "continuous"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
     digits = all_continuous() ~ 1,
-    missing_text = "Missing"
+    missing = "no"
   ) %>%
-   add_overall() #%>%
-  # # Kept add_difference (removed add_p to prevent the column collision error)
-  # add_difference(test = all_continuous() ~ "t.test") %>%
-  # bold_labels()
-usmle_tbl
+  add_overall() %>%
+  bold_labels() |> 
+  modify_footnote(all_stat_cols() ~ "Mean (SD); n (%)")
 ```
 
 
-
-```{r, include=FALSE}
-
-#Including all data (7 unknown URM status)
-usmle_scores_prep |> 
-  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
-               names_to = "Exam", 
-               values_to = "Score") |> 
-  ggplot(aes(x = URM, y = Score, fill = URM)) +
-  geom_boxplot(alpha = 0.7) +
-  facet_wrap(~ Exam) +
-  theme_minimal() +
-  labs(title = "USMLE Score Distribution by URM Status",
-       x = "URM Status",
-       y = "Exam Score",
-       fill = "URM Status")
-
-```
-
-
+Table 1 above: Baseline demographic characteristics, standardized examination scores (USMLE Step 1 and Step 2 CK), and OSCE performance metrics were summarized overall and stratified by URM status. Continuous variables are presented as mean (SD) and categorical variables as n (%).
 
 
 ```{r, echo=FALSE}
-#Including only URM and non-URM groups
-usmle_scores_prep |> 
-  filter(URM %in% c("Non-URM", "URM")) |> 
-  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
-               names_to = "Exam", 
-               values_to = "Score") |> 
-  ggplot(aes(x = URM, y = Score, fill = URM)) +
-  geom_boxplot(alpha = 0.7) +
-  facet_wrap(~ Exam) +
-  theme_minimal() +
-  labs(title = "USMLE Score Distribution by URM Status",
-       x = "URM Status",
-       y = "Exam Score",
-       fill = "URM Status")
-```
-
-```{r, echo=FALSE}
-#Histogram of USMLE scores (Step 1 and Step 2) (continuous)
-hist(df$STEP1_ExamScore) #distribution looks ok
-
-hist(df$STEP2CK_ExamScore) #distribution looks ideal
-
-```
-
-
-```{r}
-
-
-```
-
-
-
-
-
-OSCE: aggregated osce scores across competency/component (communication or physical exam - these were the ones Guth had the most interest in)
-
-```{r, echo=FALSE}
-osce_stat_table <- df |> 
-  summarise(across(all_of(final_ordered_osce), 
+osce_stat_table <- df_final |> 
+  summarise(across(all_of(ordered_osce), 
                    list(
                      Mean = ~mean(.x, na.rm = TRUE),
                      SD   = ~sd(.x, na.rm = TRUE),
@@ -308,15 +265,15 @@ osce_stat_table <- df |>
     names_from = Statistic,
     values_from = value
   )
-osce_stat_table
+#osce_stat_table
 ```
 
 
 ```{r, echo=FALSE}
-osce_stat_table_urm <- df |> 
+osce_stat_table_urm <- df_final |> 
   filter(URM %in% c("Non-URM", "URM")) |> 
   group_by(URM) |> 
-  summarise(across(all_of(final_ordered_osce), 
+  summarise(across(all_of(ordered_osce), 
                    list(
                      Mean = ~mean(.x, na.rm = TRUE),
                      SD   = ~sd(.x, na.rm = TRUE),
@@ -336,10 +293,14 @@ osce_stat_table_urm <- df |>
     values_from = value
   )
 
-view(osce_stat_table_urm)
+#osce_stat_table_urm
 ```
 
+Constructed OSCE variables represent the mean of the Bates, Ramos, Payne, Hyde, and Snelling scores for each evaluation component. For each student, available pre-clerkship OSCE scores were averaged across cases and semesters separately for communication, physical examination, medical documentation, and oral presentation.
 
+
+<details>
+<summary>Click to expand: Mean Scores with SD by OSCE Exam - not aggregated</summary>
 
 ```{r, echo=FALSE}
 osce_stat_table |> 
@@ -357,15 +318,21 @@ ggplot(aes(x = reorder(OSCE_Exam, Mean), y = Mean, fill = OSCE_Exam)) +
     y = "Mean Score"
   )
 ```
+</details>
 
 
+
+
+
+<details>
+<summary>Click to expand: Mean Scores with SD by OSCE Exam stratified by URM status - not aggregated</summary>
 
 ```{r, echo=FALSE}
 # Summary table grouped by URM and OSCE exams
-osce_urm_summary_table <- df |> 
+osce_urm_summary_table <- df_final |> 
   filter(URM %in% c("Non-URM", "URM")) |> 
   group_by(URM) |> 
-  summarise(across(all_of(final_ordered_osce), 
+  summarise(across(all_of(ordered_osce), 
                    list(
                      Mean = ~mean(.x, na.rm = TRUE),
                      SD   = ~sd(.x, na.rm = TRUE)
@@ -396,7 +363,11 @@ osce_urm_summary_table |>
     y = "Mean Score",
     fill = "URM Status"
   )
+#osce_urm_summary_table
 ```
+</details>
+
+
 
 
 ```{r, echo=FALSE}
@@ -406,9 +377,9 @@ osce_urm_summary_table |>
 # grepl documentation https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/grep
 
 
-df_categorized <- df |> 
+df_categorized <- df_final |> 
   filter(URM %in% c("Non-URM", "URM")) |> 
-  select(URM, all_of(final_ordered_osce)) |> 
+  select(URM, all_of(ordered_osce)) |> 
   pivot_longer(
     cols = -URM,
     names_to = "Exam_Name",
@@ -448,11 +419,16 @@ competency_summary
 
 ```
 
+This grouped horizontal bar chart illustrates mean performance across the four aggregated OSCE competency categories (Oral Presentation, Communication, Medical Documentation, and Physical Examination), stratified by URM status. Mean scores and error bar spreads remain closely aligned between URM and non-URM groups across all four domains, with Oral Presentation showing the highest overall averages and Physical Examination recording slightly lower performance.
+
+
+
+
 ```{r, echo=FALSE}
 
-competency_stat_table <- df |> 
+competency_stat_table <- df_final |> 
   filter(URM %in% c("Non-URM", "URM")) |> 
-  select(URM, all_of(final_ordered_osce)) |> 
+  select(URM, all_of(ordered_osce)) |> 
   pivot_longer(
     cols = -URM,
     names_to = "Exam_Name",
@@ -474,7 +450,7 @@ competency_stat_table <- df |>
     IQR    = IQR(Score, na.rm = TRUE),
     Min    = min(Score, na.rm = TRUE),
     Max    = max(Score, na.rm = TRUE),
-    N      = sum(!is.na(Score)),
+    N_students  = n_distinct(df_final$ResearchID),
     .groups = "drop"
   ) |> 
   arrange(Competency, URM)
@@ -485,9 +461,13 @@ competency_stat_table
 
 ```
 
+This summary table presents descriptive statistics (mean, standard deviation, median, IQR, min, max, and student count) for the four aggregated OSCE competency categories stratified by URM status. Overall performance metrics remain high and closely comparable across both URM and non-URM groups across all competency domains.
 
 
-```{r, echo=FALSE}
+<details>
+<summary>Click to expand: OSCE Component Score Distributions by URM Status - aggregated </summary>
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
 df_categorized |> 
   ggplot(aes(x = Competency, y = Score, fill = URM)) +
   # Draw boxplots with some transparency
@@ -503,68 +483,168 @@ df_categorized |>
   )
 ```
 
+</details>
+
+
+
+
+Final Clerkship Grades-
+
+Final Clerkship grades: PI mentions wanting to focus on the final clerkship grades. There is a lot of missingness for some final clerkship grades (AAC, RCC) and others have only one option heavily preferred of 'Pass' (EC, MSK)
+
+<details>
+<summary>Click to expand: Overall Table Summary For Final Clerkship Grades</summary>
+
+```{r, echo=FALSE}
+df_final_coursegrades <-  df_final |> 
+  select(all_of(ends_with("_Final_Course_Grade")), 'URM') 
+
+tbl_summary(df_final_coursegrades)
+```
+
+</details>
+
+```{r, echo=FALSE}
+
+urm_status_final_grades <- df_final_coursegrades |>    
+  pivot_longer(
+    cols = ends_with("_Final_Course_Grade"),
+    names_to = "Final_Course",
+    values_to = "Grade"
+  ) |>    
+  # Remove "_Final_Course_Grade" to leave just the course prefix
+  mutate(Final_Course = gsub("_Final_Course_Grade", "", Final_Course)) |> 
+  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |>   
+  ggplot(aes(x = URM, fill = Grade)) +
+  geom_bar(position = "dodge", alpha = 0.8) +
+  facet_wrap(~ Final_Course) +
+  theme_minimal() +
+  labs(
+    title = "Final Course Grades by URM Status",
+    x = "URM Status",
+    y = "Number of Students",
+    fill = "Grade"
+  )
+
+urm_status_final_grades
+```
+
+This faceted bar chart illustrates the distribution of final course grades across pre-clerkship courses, stratified by URM status. Across most courses, grade distributions consistently span Pass, High Pass, and Honors categories for both groups.
+
+Clinical Clerkship Grades-
+
+<details>
+<summary>Click to expand: Overall Table Summary For Clinical Clerkship Grades</summary>
 
 
 ```{r, echo=FALSE}
-#---Osce missingness table- not grouped-----##
-miss_tbl <- df %>%
-  select(URM, all_of(final_ordered_osce), STEP1_ExamScore, STEP2CK_ExamScore) %>%
-  summarise(across(-URM, list(n_miss = ~sum(is.na(.x)),
-                                  pct_miss = ~round(mean(is.na(.x)) * 100, 1)))) %>%
-  pivot_longer(everything(), names_to = c("variable", ".value"),
-               names_pattern = "(.*)_(n_miss|pct_miss)") %>%
-  mutate(variable = factor(variable, levels = c(final_ordered_osce, "STEP1_ExamScore", "STEP2CK_ExamScore"))) %>%
-  arrange(variable)
-view(miss_tbl)
+df_final_clinicaltable <- df_final|> select(ends_with("_clinical_grade"), 'URM')
+
+tbl_summary(df_final_clinicaltable)
 
 ```
 
+</details>
+
+
+```{r, echo=FALSE}
+urm_status_clinical <- df_final_clinicaltable |>   
+  pivot_longer(
+    cols = ends_with("_clinical_grade"),
+    names_to = "Clinical_Clerkship",
+    values_to = "Grade"
+  ) |> 
+  # Fixed: Use %in% and separate the is.na condition with a comma
+  filter(URM %in% c("Non-URM", "URM"), !is.na(Grade)) |> 
+  ggplot(aes(x = URM, fill = Grade)) +
+  geom_bar(position = "dodge", alpha = 0.8) +
+  facet_wrap(~ Clinical_Clerkship) +
+  theme_minimal() +
+  labs(
+    title = "Clinical Clerkship Grades by URM Status",
+    x = "URM Status",
+    y = "Number of Students",
+    fill = "Grade"
+  )
+
+urm_status_clinical
+```
+
+This faceted bar chart above illustrates the distribution of clinical clerkship grades across required specialty rotations, stratified by URM status. Across most clinical clerkships, grade distributions span Pass, High Pass, and Honors categories for both groups.
+
+
+
+USMLE scores-
 
 
 
 
 ```{r, echo=FALSE}
+# ---- 4. USMLE scores by URM status table----
+usmle_tbl <- df_final %>%
+  mutate(URM = droplevels(URM)) %>% 
+  filter(URM %in% c("Non-URM", "URM")) %>%
+  select(URM, STEP1_ExamScore, STEP2CK_ExamScore) %>%
+  tbl_summary(
+    by = URM,
+    label = list(STEP1_ExamScore ~ "USMLE Step 1", STEP2CK_ExamScore ~ "USMLE Step 2 CK"),
+    type = all_continuous() ~ "continuous2",
+    statistic = all_continuous() ~ c("{mean} ({sd})", "{median} [{p25}, {p75}]"),
+    digits = all_continuous() ~ 1,
+    missing_text = "Missing"
+  ) %>%
+  add_overall() %>%
+  bold_labels()
 
-#Checking OSCE missingness per cases(rows) to figure out if there's anything weird or that we have to change
-# ---- 1. Number of missing OSCE scores per student ----
-osce_missing <- df %>%
-  mutate(n_osce_miss = rowSums(is.na(across(all_of(final_ordered_osce)))),
-         pct_osce_miss = round(n_osce_miss / length(final_ordered_osce) * 100, 1))
-
-
-all_n_osce_missing <- osce_missing %>% count(n_osce_miss) %>% mutate(pct = round(n / sum(n) * 100, 1))
-
-all_n_osce_missing
-
-urm_osce_miss <- osce_missing %>% count(URM, n_osce_miss) %>%
-  group_by(URM) %>% mutate(pct = round(n / sum(n) * 100, 1))
-
-urm_osce_miss
-
-# ---- 3. Is missingness related to URM status? ----
-osce_missing_stat <- osce_missing %>% filter(URM %in% c("Non-URM", "URM")) %>%
-  group_by(URM) %>%
-  summarise(n = n(), 
-            mean_miss = mean(n_osce_miss), 
-            median_miss = median(n_osce_miss),
-            pct_any_missing = mean(n_osce_miss > 0) * 100)
-
-osce_missing_stat
+usmle_tbl
 ```
 
 
+These scores visually don't look like there is anything weird going on here - good!
 
 
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+
+usmle_scores_prep  <- df_final |> select('STEP1_ExamScore', 'STEP2CK_ExamScore', 'URM') 
+
+usmle_plot  <- usmle_scores_prep |> 
+  pivot_longer(cols = c(STEP1_ExamScore, STEP2CK_ExamScore), 
+               names_to = "Exam", 
+               values_to = "Score") |> 
+  ggplot(aes(x = URM, y = Score, fill = URM)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ Exam) +
+  theme_minimal() +
+  labs(title = "USMLE Score Distribution by URM Status",
+       x = "URM Status",
+       y = "Exam Score",
+       fill = "URM Status")
+
+usmle_plot
+```
+
+This boxplot figure displays the distribution of USMLE Step 1 and Step 2 CK exam scores stratified by URM status. For both examinations, median performance and interquartile ranges demonstrate overall consistent score distributions between URM and non-URM student groups.
 
 
+```{r, echo=FALSE}
+#Histogram of USMLE scores (Step 1 and Step 2) (continuous)
+hist(df$STEP1_ExamScore) #distribution looks ok
+
+hist(df$STEP2CK_ExamScore) #distribution looks ideal
+
+```
+
+These histograms display the overall score distributions for USMLE Step 1 and Step 2 CK examinations across the student cohort. Both distributions approximate normal curves centered around their respective mean and median values without major skewness.
 
 
+Future Analysis Preview-
 
+Gender variable: The variable gender for this data set is pretty equal, there is one row that has that variable marked as 'unknown'. N=198 with either male or female 
 
+```{r, echo=FALSE}
 
-
-
-
+summary(df$gender)
+```
 
 
 
